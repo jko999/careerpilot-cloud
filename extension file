@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "CareerPilot Autofill",
+  "version": "1.0.0",
+  "description": "Fill supported job application fields from your CareerPilot profile. Never submits forms.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://*.supabase.co/*"],
+  "action": {
+    "default_title": "CareerPilot Autofill",
+    "default_popup": "popup.html"
+  }
+}
