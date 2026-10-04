@@ -696,8 +696,64 @@ with cv_tab:
 
 with helper_tab:
     st.subheader("Prepare a stronger application")
-    st.write("Create editable application materials and autofill supported job-portal forms in your existing signed-in Chrome/Edge session. The browser integration is bundled inside this CareerPilot.py file and its folder is created automatically. CareerPilot never clicks Submit for you.")
-    st.info("Hosted autofill is disabled in this cloud edition. Use the application materials and tracker here; a secure authenticated browser extension is a separate future step.")
+    st.write("Create editable application materials and use the CareerPilot browser extension to autofill supported job-portal forms using your saved profile. CareerPilot never clicks Submit for you.")
+
+    with st.expander("⚡ Set up browser autofill — one-time setup", expanded=True):
+        st.markdown("""
+        **What this does**
+
+        CareerPilot's browser extension can fill supported, currently empty text fields and dropdowns on job application pages using the details saved under **My Details**. You must review every field and submit the application yourself.
+
+        **Step 1 — Complete your CareerPilot profile**
+        1. Open **My Details**.
+        2. Enter your contact details, education, experience, skills and base CV.
+        3. Click **Save details**.
+
+        **Step 2 — Download the extension**
+        Download the ZIP below and extract it to a folder on your computer. Keep the extracted folder somewhere you will not accidentally delete it.
+        """)
+        extension_path = APP_DIR / "CareerPilot_Browser_Autofill.zip"
+        if extension_path.exists():
+            st.download_button(
+                "⬇️ Download CareerPilot Autofill Extension (.zip)",
+                data=extension_path.read_bytes(),
+                file_name="CareerPilot_Browser_Autofill.zip",
+                mime="application/zip",
+                key="download_careerpilot_extension",
+                use_container_width=True,
+            )
+        else:
+            st.warning("The extension ZIP is not present in the app repository yet. Add CareerPilot_Browser_Autofill.zip beside CareerPilot_Cloud.py in the GitHub repository, then redeploy.")
+
+        st.markdown("""
+        **Step 3 — Install it in Chrome or Edge**
+        1. In Chrome, open `chrome://extensions`. In Microsoft Edge, open `edge://extensions`.
+        2. Turn on **Developer mode**.
+        3. Click **Load unpacked**.
+        4. Select the extracted extension folder — the folder containing `manifest.json`.
+        5. Pin CareerPilot Autofill to the browser toolbar if you want quick access.
+
+        **Step 4 — Connect your account**
+        1. Click the CareerPilot Autofill extension icon.
+        2. Enter the Supabase project URL and the **public anon/publishable key** provided by the CareerPilot administrator, if these are not already filled in.
+        3. Sign in using your own CareerPilot account credentials.
+        4. Keep your CareerPilot profile up to date in **My Details**.
+
+        **Step 5 — Autofill a job application**
+        1. Sign in to the job portal normally and open the application form.
+        2. Click the extension icon and choose **Autofill this page**.
+        3. Check every filled field, correct anything that is wrong, and complete any unanswered questions.
+        4. Upload your CV or other files manually if the portal requests them.
+        5. Click the job portal's **Submit** button yourself.
+
+        **Important limitations**
+        - Each user installs and connects the extension on their own browser once.
+        - Autofill supports common text fields and dropdowns; not every job portal or field will be recognised.
+        - It does not submit applications, answer consent/demographic questions, bypass CAPTCHA or MFA, or upload files automatically.
+        - Never enter a Supabase service-role/secret key in the extension. Use only the public anon/publishable key.
+        - On a shared computer, sign out of the extension when finished.
+        """)
+
     h1, h2 = st.columns(2)
     with h1:
         app_company = st.text_input("Company", key="helper_company")
