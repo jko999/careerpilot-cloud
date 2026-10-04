@@ -11,7 +11,7 @@ from urllib.parse import quote_plus
 import requests
 import streamlit as st
 
-# CareerPilot complete replacement — lightweight, local-first, no paid API required.
+# CareerPilot cloud edition — profile and application tracker stored in Supabase.
 # Hosted edition stores profile and tracker records in Supabase.
 #   python -m pip install streamlit requests
 #   python -m streamlit run CareerPilot.py
@@ -751,7 +751,7 @@ with helper_tab:
 
 with profile_tab:
     st.subheader("Your profile & base CV")
-    st.caption(f"Stored locally in: {DB_PATH}")
+    st.caption("Profile and base CV are stored in your private Supabase cloud profile.")
     with st.form("profile_form"):
         p1, p2 = st.columns(2)
         with p1:
