@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CareerPilot Autofill</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="mark">CP</div>
+      <div><h1>CareerPilot</h1><p class="muted">Browser Autofill</p></div>
+    </header>
+    <section id="config">
+      <h2>Connect to your profile</h2>
+      <label>Supabase project URL
+        <input id="projectUrl" type="url" placeholder="https://your-project.supabase.co">
+      </label>
+      <label>Supabase publishable / anon key
+        <textarea id="anonKey" rows="3" placeholder="Paste the public publishable/anon key from Supabase"></textarea>
+      </label>
+      <p class="hint">Use only the public publishable/anon key — never a service-role or secret key.</p>
+      <label>Email <input id="email" type="email" autocomplete="username"></label>
+      <label>Password <input id="password" type="password" autocomplete="current-password"></label>
+      <button id="login">Sign in</button>
+    </section>
+    <section id="connected" hidden>
+      <p id="account" class="hint"></p>
+      <button id="fill" class="primary">Autofill this page</button>
+      <button id="refresh" class="secondary">Refresh profile</button>
+      <button id="logout" class="secondary">Sign out</button>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p>
+    <footer>Review every field. This extension never submits applications or fills checkboxes, consent, demographic, or eligibility questions.</footer>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
