@@ -301,6 +301,183 @@ def make_tailoring_draft(resume, jd, title="Target Role"):
     return "\n".join(lines), score, matched, missing
 
 
+# --- CV optimisation enhancements ---
+# These functions are intentionally local/rule-based: they do not call an external AI
+# service and they never invent a skill, employer, qualification, metric, or achievement.
+COMMON_SKILL_TERMS = {
+    "python", "java", "javascript", "typescript", "c", "c++", "c#", "go", "rust",
+    "bash", "powershell", "sql", "html", "css", "linux", "windows", "aws", "azure",
+    "gcp", "docker", "kubernetes", "terraform", "git", "github", "gitlab",
+    "siem", "edr", "xdr", "ndr", "soc", "splunk", "wazuh", "sentinel", "qradar",
+    "fortisiem", "fortigate", "fortianalyzer", "wireshark", "nmap", "metasploit",
+    "burp", "burp suite", "suricata", "snort", "nessus", "qualys", "crowdstrike",
+    "sentinelone", "defender", "mde", "threat hunting", "incident response",
+    "incident management", "vulnerability management", "penetration testing",
+    "penetration test", "vapt", "malware analysis", "reverse engineering",
+    "digital forensics", "memory forensics", "volatility", "mitre att&ck",
+    "owasp", "python", "machine learning", "artificial intelligence", "scikit-learn",
+    "pandas", "matplotlib", "power bi", "grafana", "elk", "kibana", "elastic",
+    "network security", "cloud security", "iam", "active directory", "osint",
+    "iso 27001", "incident triage", "log analysis", "threat detection",
+    "vulnerability assessment", "risk assessment", "firewall", "tcp", "udp",
+}
+
+WEAK_VERB_REPLACEMENTS = [
+    (r"^\s*worked on\b", "Performed"),
+    (r"^\s*worked with\b", "Used"),
+    (r"^\s*helped\b", "Supported"),
+    (r"^\s*responsible for\b", "Managed"),
+    (r"^\s*was responsible for\b", "Managed"),
+    (r"^\s*involved in\b", "Contributed to"),
+    (r"^\s*did\b", "Performed"),
+]
+
+def _normalise_phrase(value):
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9+#./ -]", " ", (value or "").lower())).strip()
+
+def extract_jd_skill_terms(jd):
+    """Return known technical/security skill phrases actually present in the JD."""
+    text = _normalise_phrase(jd)
+    found = []
+    # Long phrases first so 'burp suite' is preferred to 'burp'.
+    for term in sorted(COMMON_SKILL_TERMS, key=len, reverse=True):
+        if term in text:
+            found.append(term)
+    return list(dict.fromkeys(found))
+
+def resume_contains_term(resume, term):
+    text = _normalise_phrase(resume)
+    return term in text
+
+def _sentence_chunks(text):
+    chunks = []
+    for raw in re.split(r"(?<=[.!?])\s+|\n+", text or ""):
+        s = re.sub(r"^[\s•●▪◦\-*]+\s*", "", raw).strip()
+        if len(s) >= 35 and not re.match(r"^(education|experience|skills|projects|summary|certifications)\s*$", s, re.I):
+            chunks.append(s)
+    return chunks
+
+def calculate_ats_readiness(resume, jd):
+    """Transparent 0-100 readiness estimate; explicitly not an employer ATS score."""
+    resume_text = resume or ""
+    jd_text = jd or ""
+    score, matched, missing = keyword_analysis(resume_text, jd_text)
+
+    jd_skills = extract_jd_skill_terms(jd_text)
+    matched_skills = [x for x in jd_skills if resume_contains_term(resume_text, x)]
+    skill_score = round(25 * len(matched_skills) / max(1, len(jd_skills))) if jd_skills else min(25, round(score * 0.25))
+
+    sections = set(extract_sections(resume_text))
+    required_sections = {"summary", "experience", "education", "skills"}
+    structure_score = round(20 * len(sections & required_sections) / len(required_sections))
+
+    # Evidence: measurable outcomes + action-led bullets.
+    metric_count = len(re.findall(r"\b\d+(?:\.\d+)?\s*(?:%|percent|users|systems|devices|alerts|years|months|hours|days|endpoints|servers|clients)?\b", resume_text, re.I))
+    action_count = len(re.findall(r"(?im)^\s*(?:[-•●*]\s*)?(?:managed|performed|analysed|analyzed|investigated|implemented|configured|created|developed|monitored|triaged|resolved|automated|deployed|led|built|tested|assisted|supported|conducted|designed|reviewed)\b", resume_text))
+    evidence_score = min(10, min(5, metric_count) + min(5, round(action_count / 2)))
+
+    # Parsing/readability checks. We do not pretend to inspect a DOCX layout because
+    # this optimizer receives plain CV text.
+    parsing_score = 10
+    if re.search(r"[|]{2,}|\t{2,}", resume_text):
+        parsing_score -= 3
+    if len(resume_text) < 500:
+        parsing_score -= 3
+    if not sections:
+        parsing_score -= 4
+    parsing_score = max(0, parsing_score)
+
+    keyword_score = round(35 * score / 100)
+    total = max(0, min(100, keyword_score + skill_score + structure_score + evidence_score + parsing_score))
+    return {
+        "total": total,
+        "keyword_score": keyword_score,
+        "skill_score": skill_score,
+        "structure_score": structure_score,
+        "evidence_score": evidence_score,
+        "parsing_score": parsing_score,
+        "keyword_overlap": score,
+        "matched": matched,
+        "missing": missing,
+        "jd_skills": jd_skills,
+        "matched_skills": matched_skills,
+        "sections": sorted(sections),
+        "metric_count": metric_count,
+        "action_count": action_count,
+    }
+
+def _make_replacement(sentence):
+    """Strengthen wording without adding new facts."""
+    result = sentence
+    for pattern, replacement in WEAK_VERB_REPLACEMENTS:
+        result = re.sub(pattern, replacement, result, flags=re.I)
+    result = re.sub(r"\s{2,}", " ", result).strip()
+    return result
+
+def exact_cv_changes(resume, jd):
+    """Produce conservative, evidence-grounded CV change recommendations."""
+    jd_terms = extract_jd_skill_terms(jd)
+    resume_terms = [t for t in jd_terms if resume_contains_term(resume, t)]
+    chunks = _sentence_chunks(resume)
+    changes = []
+
+    for sentence in chunks:
+        sentence_tokens = tokens(sentence) - STOPWORDS
+        overlap = sorted(sentence_tokens & (tokens(jd) - STOPWORDS))
+        if not overlap:
+            continue
+        replacement = _make_replacement(sentence)
+        if replacement != sentence:
+            changes.append({
+                "type": "Replace",
+                "current": sentence,
+                "recommended": replacement,
+                "reason": "Stronger action-led wording without adding new facts."
+            })
+        elif len(overlap) >= 2:
+            changes.append({
+                "type": "Retain / refine",
+                "current": sentence,
+                "recommended": sentence,
+                "reason": "Already contains JD-relevant language; keep it truthful and specific."
+            })
+        if len(changes) >= 8:
+            break
+
+    # Missing JD skills are deliberately presented as conditional additions.
+    # We never manufacture evidence for a skill absent from the supplied CV.
+    missing_skills = [x for x in jd_terms if x not in resume_terms]
+    additions = []
+    for term in missing_skills[:10]:
+        additions.append({
+            "type": "Add only if true",
+            "current": "Not detected in current CV",
+            "recommended": f"Add “{term}” in the Skills section only if you genuinely have this skill/experience.",
+            "reason": "The JD mentions this skill, but the current CV does not establish it."
+        })
+
+    # Identify weak/overly generic lines that are safe to review.
+    de_emphasize = []
+    for sentence in chunks:
+        lower = sentence.lower()
+        if any(x in lower for x in ("objective", "references available", "responsible for various", "hardworking", "team player")):
+            de_emphasize.append({
+                "type": "De-emphasize / review",
+                "current": sentence,
+                "recommended": "Replace with a JD-relevant, evidence-based statement if possible.",
+                "reason": "Generic content contributes little to JD alignment."
+            })
+        if len(de_emphasize) >= 5:
+            break
+
+    return {
+        "replace": changes,
+        "add": additions,
+        "deemphasize": de_emphasize,
+        "retain_terms": resume_terms[:20],
+    }
+
+
 def portal_urls(query, location, work_mode, employment_type, recency):
     """Build portal searches using query-string URLs where possible.
 
@@ -641,7 +818,7 @@ with remote_tab:
 
 with cv_tab:
     st.subheader("CV optimiser & ATS readiness")
-    st.caption("Local keyword and document-readiness analysis. No paid AI service is called. It does not guarantee ATS success.")
+    st.caption("Analyse JD alignment, estimate ATS readiness transparently, and get specific CV change recommendations. No paid AI service is called and no unsupported experience is invented.")
     resume_input = st.text_area("Your current CV / resume text", value=profile.get("resume_text", ""), height=280, key="cv_resume")
     jd_input = st.text_area("Full job description (JD)", height=280, placeholder="Paste the job description here…", key="cv_jd")
     target_title = st.text_input("Target job title (for the draft heading)", placeholder="e.g. Cyber Security Engineer", key="cv_target_title")
@@ -650,15 +827,66 @@ with cv_tab:
             st.error("Paste both the current CV and the full job description.")
         else:
             draft, score, matched, missing = make_tailoring_draft(resume_input, jd_input, target_title.strip() or "Target Role")
-            st.session_state["cv_analysis"] = {"draft": draft, "score": score, "matched": matched, "missing": missing, "sections": extract_sections(resume_input), "resume": resume_input, "jd": jd_input}
+            ats = calculate_ats_readiness(resume_input, jd_input)
+            changes = exact_cv_changes(resume_input, jd_input)
+            st.session_state["cv_analysis"] = {
+                "draft": draft,
+                "score": score,
+                "matched": matched,
+                "missing": missing,
+                "sections": extract_sections(resume_input),
+                "resume": resume_input,
+                "jd": jd_input,
+                "ats": ats,
+                "changes": changes,
+            }
+
     analysis = st.session_state.get("cv_analysis")
     if analysis:
-        score = analysis["score"]
+        ats = analysis.get("ats") or calculate_ats_readiness(analysis["resume"], analysis["jd"])
+        changes = analysis.get("changes") or exact_cv_changes(analysis["resume"], analysis["jd"])
+
+        st.markdown("### ATS Readiness Score")
+        st.caption("CareerPilot estimate based on JD alignment, skills coverage, CV structure, evidence, and text-level parsing checks. It is not the score assigned by an employer's ATS.")
+
+        score_col, detail_col = st.columns([1, 2])
+        with score_col:
+            st.metric("CareerPilot ATS Readiness", f"{ats['total']}/100")
+        with detail_col:
+            if ats["total"] >= 85:
+                st.success("Strong readiness. Review the specific gaps below before applying.")
+            elif ats["total"] >= 70:
+                st.info("Good baseline. A few targeted changes could improve alignment.")
+            elif ats["total"] >= 50:
+                st.warning("Moderate readiness. Tailor the CV before applying.")
+            else:
+                st.error("Low readiness. Start with the major JD-alignment and structure gaps.")
+
+        s1, s2, s3, s4, s5 = st.columns(5)
+        s1.metric("JD alignment", f"{ats['keyword_score']}/35")
+        s2.metric("Skills coverage", f"{ats['skill_score']}/25")
+        s3.metric("Structure", f"{ats['structure_score']}/20")
+        s4.metric("Evidence", f"{ats['evidence_score']}/10")
+        s5.metric("Parsing", f"{ats['parsing_score']}/10")
+
+        with st.expander("How the ATS score is calculated"):
+            st.markdown(
+                f"""
+                - **JD alignment — {ats['keyword_score']}/35:** overlap between meaningful CV and JD terms.
+                - **Skills coverage — {ats['skill_score']}/25:** recognised technical/security skills from the JD that are explicitly present in the CV.
+                - **Structure — {ats['structure_score']}/20:** conventional summary, experience, education and skills headings.
+                - **Evidence — {ats['evidence_score']}/10:** measurable evidence and action-led experience bullets.
+                - **Parsing — {ats['parsing_score']}/10:** basic text-level checks for readable length, conventional sections and obvious table/column separators.
+
+                **Important:** this is a CareerPilot readiness estimate. No software can know an employer's private ATS ranking formula from the CV and JD alone.
+                """
+            )
+
         m1, m2, m3 = st.columns(3)
-        m1.metric("Keyword overlap indicator", f"{score}%")
+        m1.metric("Keyword overlap indicator", f"{analysis['score']}%")
         m2.metric("JD terms matched", len(analysis["matched"]))
         m3.metric("JD terms not detected", len(analysis["missing"]))
-        st.caption("This is a basic word-overlap estimate, not a real ATS score. It does not assess employer-specific parsing, ranking, experience quality, or eligibility.")
+
         left, right = st.columns(2)
         with left:
             st.markdown("**Terms found in both CV and JD**")
@@ -666,6 +894,39 @@ with cv_tab:
         with right:
             st.markdown("**JD terms not detected in CV**")
             st.write(", ".join(analysis["missing"][:160]) or "No missing terms detected by this simple comparison.")
+
+        st.markdown("### 🔄 Exact CV Changes")
+        st.caption("Use these as editing instructions. Review every recommendation and only add claims you can genuinely support.")
+
+        if changes["replace"]:
+            st.markdown("#### Replace / strengthen")
+            for idx, item in enumerate(changes["replace"], 1):
+                with st.container(border=True):
+                    st.markdown(f"**{idx}. CURRENT**")
+                    st.write(item["current"])
+                    st.markdown("**RECOMMENDED**")
+                    st.write(item["recommended"])
+                    st.caption(item["reason"])
+        else:
+            st.info("No safe, evidence-grounded replacement was identified from the current text. Your existing wording may already be specific, or the CV needs more detailed bullet-level content.")
+
+        if changes["add"]:
+            st.markdown("#### Add — only if true")
+            for idx, item in enumerate(changes["add"], 1):
+                with st.container(border=True):
+                    st.markdown(f"**{idx}. {item['recommended']}**")
+                    st.caption(item["reason"])
+
+        if changes["deemphasize"]:
+            st.markdown("#### De-emphasize / review")
+            for item in changes["deemphasize"]:
+                st.markdown(f"- **Current:** {item['current']}")
+                st.markdown(f"  **Action:** {item['recommended']}")
+
+        if changes["retain_terms"]:
+            st.markdown("#### Retain — already relevant")
+            st.write(", ".join(changes["retain_terms"]))
+
         st.markdown("#### ATS-readiness checklist")
         checks = {
             "Has a professional summary/profile section": "summary" in analysis["sections"],
@@ -684,10 +945,17 @@ with cv_tab:
                 st.warning("Review: " + label)
             else:
                 st.info("Manual check: " + label)
+
         st.markdown("#### Tailoring worksheet draft")
         st.write("This is a starting worksheet, not a fabricated final CV. It keeps your original CV text and provides an editable summary prompt plus keyword gaps; manually rewrite bullets using only true experience.")
         st.text_area("Editable draft", value=analysis["draft"], height=360, key="cv_draft_editor")
-        st.download_button("Download tailoring worksheet (.txt)", data=st.session_state.get("cv_draft_editor", analysis["draft"]), file_name="careerpilot_cv_tailoring_worksheet.txt", mime="text/plain")
+        st.download_button(
+            "Download tailoring worksheet (.txt)",
+            data=st.session_state.get("cv_draft_editor", analysis["draft"]),
+            file_name="careerpilot_cv_tailoring_worksheet.txt",
+            mime="text/plain",
+            key="download_cv_tailoring_worksheet",
+        )
         if st.button("Save current CV to My Details", key="save_cv_from_optimizer"):
             current = get_profile()
             current["resume_text"] = analysis["resume"]
